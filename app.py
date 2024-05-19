@@ -1,0 +1,118 @@
+import streamlit as st 
+from streamlit_chat import message
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import MessagesPlaceholder
+from langchain.chains import ConversationalRetrievalChain
+from streamlit_oauth import OAuth2Component
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_core.documents import Document
+
+
+DB_FAISS_PATH = './vectorstore/db_faiss'
+
+st.title("Query Descope Docs")
+
+AUTHORIZE_URL = st.secrets.get('AUTHORIZE_URL')
+TOKEN_URL = st.secrets.get('TOKEN_URL')
+REFRESH_TOKEN_URL = st.secrets.get('REFRESH_TOKEN_URL')
+REVOKE_TOKEN_URL = st.secrets.get('REVOKE_TOKEN_URL')
+CLIENT_ID = st.secrets.get('CLIENT_ID')
+CLIENT_SECRET = st.secrets.get('CLIENT_SECRET')
+REDIRECT_URI = st.secrets.get('REDIRECT_URI')
+SCOPE = st.secrets.get('SCOPE')
+
+oauth2 = OAuth2Component(CLIENT_ID, CLIENT_SECRET, AUTHORIZE_URL, TOKEN_URL, REFRESH_TOKEN_URL, REVOKE_TOKEN_URL)
+
+
+if 'token' not in st.session_state:
+    # If not, show authorize button
+    result = oauth2.authorize_button("Authorize", REDIRECT_URI, SCOPE)
+    if result and 'token' in result:
+        # If authorization successful, save token in session state
+        st.session_state.token = result.get('token')
+        st.experimental_rerun()
+else:
+    # If token exists in session state, show the token
+    token = st.session_state['token']
+    st.json(token)
+    if st.button("Refresh Token"):
+        # If refresh token button is clicked, refresh the token
+        token = oauth2.refresh_token(token)
+        st.session_state.token = token
+        st.experimental_rerun()
+
+
+loader = WebBaseLoader(["https://docs.descope.com/manage/idpapplications/oidc/", "https://docs.descope.com/manage/testusers/"])
+data = loader.load()
+role = "Dev"
+
+list_of_documents = [
+    Document(page_content=data[0].page_content, metadata=dict(role="Dev")),
+    Document(page_content=data[1].page_content, metadata=dict(role="QA"))]
+
+embeddings = OpenAIEmbeddings(
+    model="text-embedding-ada-002",
+    openai_api_key=st.secrets.openai_key
+)
+
+vector = FAISS.from_documents(list_of_documents, embeddings)
+vector.save_local(DB_FAISS_PATH)
+
+
+llm = ChatOpenAI(api_key=st.secrets.openai_key, temperature=0, model="gpt-4-turbo")
+retriever = vector.as_retriever()
+
+
+def conversational_chat(query):
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are an engineer. Answer the question based Context: {context}"),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("user", "{input}"),])
+    
+    chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=vector.as_retriever(
+        search_kwargs={'filter': {'role': role}}), verbose=True)
+    response = chain({
+        "question": query, "chat_history":[]
+    })
+    return response["answer"]
+
+if 'history' not in st.session_state:
+    st.session_state['history'] = []
+
+if 'generated' not in st.session_state:
+    st.session_state['generated'] = ["Hello ! Ask me anything about Descope docs 🤗"]
+
+if 'past' not in st.session_state:
+    st.session_state['past'] = ["Hey ! 👋"]
+    
+#container for the chat history
+response_container = st.container()
+#container for the user's text input
+container = st.container()
+
+with container:
+    with st.form(key='my_form', clear_on_submit=True):
+        
+        user_input = st.text_input("Query:", placeholder="Enter your query:", key='input')
+        submit_button = st.form_submit_button(label='Send')
+        
+    if submit_button and user_input:
+        output = conversational_chat(user_input)
+        
+        st.session_state['past'].append(user_input)
+        st.session_state['generated'].append(output)
+
+if st.session_state['generated']:
+    with response_container:
+        for i in range(len(st.session_state['generated'])):
+            message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="big-smile")
+            message(st.session_state["generated"][i], key=str(i), avatar_style="thumbs")
+
+
+
+
