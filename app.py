@@ -26,12 +26,20 @@ CLIENT_SECRET = st.secrets.get('CLIENT_SECRET')
 REDIRECT_URI = st.secrets.get('REDIRECT_URI')
 SCOPE = st.secrets.get('SCOPE')
 
-oauth2 = OAuth2Component(CLIENT_ID, CLIENT_SECRET, AUTHORIZE_URL, TOKEN_URL, REFRESH_TOKEN_URL, REVOKE_TOKEN_URL)
+oauth2 = OAuth2Component(CLIENT_ID, CLIENT_SECRET, AUTHORIZE_URL, TOKEN_URL)
 
 
 if 'token' not in st.session_state:
     # If not, show authorize button
-    result = oauth2.authorize_button("Authorize", REDIRECT_URI, SCOPE)
+    result = oauth2.authorize_button(
+        name="Continue with Descope",
+        icon="https://images.ctfassets.net/xqb1f63q68s1/7D1PYGYvVgRNOBeiA6USQM/68b572056b5d38a769c71b0fba63b4e5/Descope_RGB_Icon-ForDarkBackground.svg",
+        redirect_uri="http://localhost:8501",
+        scope="openid email profile",
+        key="descope",
+        use_container_width=False,
+        pkce='S256',
+    )
     if result and 'token' in result:
         # If authorization successful, save token in session state
         st.session_state.token = result.get('token')
