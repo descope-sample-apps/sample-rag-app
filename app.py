@@ -28,10 +28,25 @@ REDIRECT_URI = st.secrets.get('REDIRECT_URI')
 SCOPE = st.secrets.get('SCOPE')
 PROJECT_ID = st.secrets.get('PROJECT_ID')
 
-oauth2 = OAuth2Component(CLIENT_ID, CLIENT_SECRET, AUTHORIZE_URL, TOKEN_URL)
-descope_client = DescopeClient(project_id=PROJECT_ID)
-loader = WebBaseLoader(["https://docs.descope.com/manage/idpapplications/oidc/", "https://docs.descope.com/manage/testusers/"])
-data = loader.load()
+with st.spinner("Loading documents and creating embeddings..."):
+    oauth2 = OAuth2Component(CLIENT_ID, CLIENT_SECRET, AUTHORIZE_URL, TOKEN_URL)
+    descope_client = DescopeClient(project_id=PROJECT_ID)
+    loader = WebBaseLoader(["https://docs.descope.com/manage/idpapplications/oidc/", "https://docs.descope.com/manage/testusers/"])
+    data = loader.load()
+
+    list_of_documents = [
+        Document(page_content=data[0].page_content, metadata=dict(role="Dev")),
+        Document(page_content=data[1].page_content, metadata=dict(role="QA"))]
+
+    embeddings = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=st.secrets.openai_key
+    )
+
+    vector = FAISS.from_documents(list_of_documents, embeddings)
+    vector.save_local(DB_FAISS_PATH)
+    llm = ChatOpenAI(api_key=st.secrets.openai_key, temperature=0, model="gpt-4-turbo")
+
 
 if 'token' not in st.session_state:
     # If not, show authorize button
@@ -53,21 +68,7 @@ else:
     token = st.session_state['token']
     jwt_response = descope_client.validate_session(session_token=token.get("access_token"), audience=PROJECT_ID)
     roles = jwt_response.get("roles")
-
-    list_of_documents = [
-        Document(page_content=data[0].page_content, metadata=dict(role="Dev")),
-        Document(page_content=data[1].page_content, metadata=dict(role="QA"))]
-
-    embeddings = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=st.secrets.openai_key
-    )
-
-    vector = FAISS.from_documents(list_of_documents, embeddings)
-    vector.save_local(DB_FAISS_PATH)
-
-
-    llm = ChatOpenAI(api_key=st.secrets.openai_key, temperature=0, model="gpt-4-turbo")
+    st.info('Logged in user with role: '+ jwt_response.get("roles")[0], icon="ℹ️")
     retriever = vector.as_retriever()
 
 
