@@ -68,54 +68,57 @@ else:
     token = st.session_state['token']
     jwt_response = descope_client.validate_session(session_token=token.get("access_token"), audience=PROJECT_ID)
     roles = jwt_response.get("roles")
-    st.info('Logged in user with role: '+ jwt_response.get("roles")[0], icon="ℹ️")
-    retriever = vector.as_retriever()
+    if not roles or not roles[0]:
+        st.info('Logged in user has no role assigned so the chat is disabled. Refresh the page to login with another user.', icon="ℹ️")
+    else: 
+        st.info('Logged in user with role: '+ jwt_response.get("roles")[0], icon="ℹ️")
+        retriever = vector.as_retriever()
 
 
-    def conversational_chat(query):
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an engineer. Answer the question based Context: {context}"),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("user", "{input}"),])
-        
-        chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=vector.as_retriever(
-            search_kwargs={'filter': {'role': roles[0]}}), verbose=True)
-        response = chain({
-            "question": query, "chat_history":[]
-        })
-        return response["answer"]
-
-    if 'history' not in st.session_state:
-        st.session_state['history'] = []
-
-    if 'generated' not in st.session_state:
-        st.session_state['generated'] = ["Hello ! Ask me anything about Descope docs 🤗"]
-
-    if 'past' not in st.session_state:
-        st.session_state['past'] = ["Hey ! 👋"]
-        
-    #container for the chat history
-    response_container = st.container()
-    #container for the user's text input
-    container = st.container()
-
-    with container:
-        with st.form(key='my_form', clear_on_submit=True):
+        def conversational_chat(query):
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", "You are an engineer. Answer the question based Context: {context}"),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("user", "{input}"),])
             
-            user_input = st.text_input("Query:", placeholder="Enter your query:", key='input')
-            submit_button = st.form_submit_button(label='Send')
-            
-        if submit_button and user_input:
-            output = conversational_chat(user_input)
-            
-            st.session_state['past'].append(user_input)
-            st.session_state['generated'].append(output)
+            chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=vector.as_retriever(
+                search_kwargs={'filter': {'role': roles[0]}}), verbose=True)
+            response = chain({
+                "question": query, "chat_history":[]
+            })
+            return response["answer"]
 
-    if st.session_state['generated']:
-        with response_container:
-            for i in range(len(st.session_state['generated'])):
-                message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="big-smile")
-                message(st.session_state["generated"][i], key=str(i), avatar_style="thumbs")
+        if 'history' not in st.session_state:
+            st.session_state['history'] = []
+
+        if 'generated' not in st.session_state:
+            st.session_state['generated'] = ["Hello ! Ask me anything about Descope docs 🤗"]
+
+        if 'past' not in st.session_state:
+            st.session_state['past'] = ["Hey ! 👋"]
+            
+        #container for the chat history
+        response_container = st.container()
+        #container for the user's text input
+        container = st.container()
+
+        with container:
+            with st.form(key='my_form', clear_on_submit=True):
+                
+                user_input = st.text_input("Query:", placeholder="Enter your query:", key='input')
+                submit_button = st.form_submit_button(label='Send')
+                
+            if submit_button and user_input:
+                output = conversational_chat(user_input)
+                
+                st.session_state['past'].append(user_input)
+                st.session_state['generated'].append(output)
+
+        if st.session_state['generated']:
+            with response_container:
+                for i in range(len(st.session_state['generated'])):
+                    message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="big-smile")
+                    message(st.session_state["generated"][i], key=str(i), avatar_style="thumbs")
 
 
 
